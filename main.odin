@@ -21,7 +21,8 @@ DARK_PIECE:   rl.Color = {  75,  44,  26, 255 }
 MARKED_LIGHT: rl.Color = { 255, 243, 161, 255 }
 MARKED_DARK:  rl.Color = { 201, 138,  24, 255 }
 
-Board :: [49]u8
+NUM_SQUARES :: 49
+Board :: [NUM_SQUARES]u8
 
 Piece :: enum {
     None,
@@ -32,8 +33,25 @@ Piece :: enum {
     Rook,
     Queen,
     Elephant,
+}
+
+Team :: enum {
+    None,
     White = 8,
     Black = 16,
+}
+
+PIECE_MASK :: 0x7
+TEAM_MASK  :: 0x18
+
+in_bounds :: proc(pos: i32, dx, dy: i32) -> bool {
+    x := (pos % 7) + dx
+    y := (pos / 7) + dy
+    return x >= 0 && x < 7 && y >= 0 && y < 7
+}
+
+capture :: proc(piece: u8, team: Team) -> bool {
+    return piece & PIECE_MASK != 0 && Team(piece & TEAM_MASK) != team
 }
 
 // NOTE: There's a lot of cleanup that can be done here
@@ -42,29 +60,29 @@ generate_starting_pos :: proc() -> Board {
 
     // Elephant
     choise := rand.int_max(2) * 4
-    board[choise] = u8(Piece.Elephant) | u8(Piece.White)
-    board[48 - choise] = u8(Piece.Elephant) | u8(Piece.Black)
+    board[choise] = u8(Piece.Elephant) | u8(Team.White)
+    board[48 - choise] = u8(Piece.Elephant) | u8(Team.Black)
 
     // Bishop
     choise = rand.int_max(7) * 2 + 1
-    board[choise] = u8(Piece.Bishop) | u8(Piece.White)
-    board[48 - choise] = u8(Piece.Bishop) | u8(Piece.Black)
+    board[choise] = u8(Piece.Bishop) | u8(Team.White)
+    board[48 - choise] = u8(Piece.Bishop) | u8(Team.Black)
 
     // Bishop blockers (Pawns)
     if choise == 7 || choise == 13 {
         // White
-        board[15] = u8(Piece.Pawn) | u8(Piece.White)
-        board[19] = u8(Piece.Pawn) | u8(Piece.White)
+        board[15] = u8(Piece.Pawn) | u8(Team.White)
+        board[19] = u8(Piece.Pawn) | u8(Team.White)
 
         // Black
-        board[48 - 15] = u8(Piece.Pawn) | u8(Piece.Black)
-        board[48 - 19] = u8(Piece.Pawn) | u8(Piece.Black)
+        board[48 - 15] = u8(Piece.Pawn) | u8(Team.Black)
+        board[48 - 19] = u8(Piece.Pawn) | u8(Team.Black)
     } else if choise == 9 || choise == 11 {
         // White
-        board[17] = u8(Piece.Pawn) | u8(Piece.White)
+        board[17] = u8(Piece.Pawn) | u8(Team.White)
 
         // Black
-        board[48 - 17] = u8(Piece.Pawn) | u8(Piece.Black)
+        board[48 - 17] = u8(Piece.Pawn) | u8(Team.Black)
     }
 
     // Queen
@@ -75,8 +93,8 @@ generate_starting_pos :: proc() -> Board {
     }
     assert(choise < 7)
     mirror_choise := 42 + choise - (choise / 7) * 14
-    board[choise] = u8(Piece.Queen) | u8(Piece.White)
-    board[mirror_choise] = u8(Piece.Queen) | u8(Piece.Black)
+    board[choise] = u8(Piece.Queen) | u8(Team.White)
+    board[mirror_choise] = u8(Piece.Queen) | u8(Team.Black)
 
     // King
     options := 7
@@ -91,8 +109,8 @@ generate_starting_pos :: proc() -> Board {
     }
     assert(choise < 7)
     mirror_choise = 42 + choise - (choise / 7) * 14
-    board[choise] = u8(Piece.King) | u8(Piece.White)
-    board[mirror_choise] = u8(Piece.King) | u8(Piece.Black)
+    board[choise] = u8(Piece.King) | u8(Team.White)
+    board[mirror_choise] = u8(Piece.King) | u8(Team.Black)
 
     // Knight
     options = 14
@@ -106,8 +124,8 @@ generate_starting_pos :: proc() -> Board {
         if board[i] != 0 || board[mirror_index] != 0 do choise += 1
     }
     mirror_choise = 42 + choise - (choise / 7) * 14
-    board[choise] = u8(Piece.Knight) | u8(Piece.White)
-    board[mirror_choise] = u8(Piece.Knight) | u8(Piece.Black)
+    board[choise] = u8(Piece.Knight) | u8(Team.White)
+    board[mirror_choise] = u8(Piece.Knight) | u8(Team.Black)
 
     // Rook
     options = 14
@@ -121,15 +139,15 @@ generate_starting_pos :: proc() -> Board {
         if board[i] != 0 || board[mirror_index] != 0 do choise += 1
     }
     mirror_choise = 42 + choise - (choise / 7) * 14
-    board[choise] = u8(Piece.Rook) | u8(Piece.White)
-    board[mirror_choise] = u8(Piece.Rook) | u8(Piece.Black)
+    board[choise] = u8(Piece.Rook) | u8(Team.White)
+    board[mirror_choise] = u8(Piece.Rook) | u8(Team.Black)
 
     // Third Row Pawns (Forced Rank)
     for i in 7..<14 {
         mirror_index := 42 + i - (i / 7) * 14
         if board[i] != 0 || board[mirror_index] != 0 {
-            board[i + 7] = u8(Piece.Pawn) | u8(Piece.White)
-            board[mirror_index - 7] = u8(Piece.Pawn) | u8(Piece.Black)
+            board[i + 7] = u8(Piece.Pawn) | u8(Team.White)
+            board[mirror_index - 7] = u8(Piece.Pawn) | u8(Team.Black)
         }
     }
 
@@ -139,14 +157,14 @@ generate_starting_pos :: proc() -> Board {
         second_row := board[9] == 0 || board[11] == 0
         if third_row && second_row {
             if rand.int_max(2) == 0 {
-                board[17] = u8(Piece.Pawn) | u8(Piece.White)
-                board[48 - 17] = u8(Piece.Pawn) | u8(Piece.Black)
+                board[17] = u8(Piece.Pawn) | u8(Team.White)
+                board[48 - 17] = u8(Piece.Pawn) | u8(Team.Black)
             } else {
-                if board[9] == 0 do board[9] = u8(Piece.Pawn) | u8(Piece.White)
-                if board[11] == 0 do board[11] = u8(Piece.Pawn) | u8(Piece.White)
+                if board[9] == 0 do board[9] = u8(Piece.Pawn) | u8(Team.White)
+                if board[11] == 0 do board[11] = u8(Piece.Pawn) | u8(Team.White)
 
-                if board[48 - 9] == 0 do board[48 - 9] = u8(Piece.Pawn) | u8(Piece.Black)
-                if board[48 - 11] == 0 do board[48 - 11] = u8(Piece.Pawn) | u8(Piece.Black)
+                if board[48 - 9] == 0 do board[48 - 9] = u8(Piece.Pawn) | u8(Team.Black)
+                if board[48 - 11] == 0 do board[48 - 11] = u8(Piece.Pawn) | u8(Team.Black)
             }
         }
     }
@@ -177,8 +195,8 @@ generate_starting_pos :: proc() -> Board {
 
                 mirror_index := 42 + index - (index / 7) * 14
 
-                board[index] = u8(Piece.Pawn) | u8(Piece.White)
-                board[mirror_index] = u8(Piece.Pawn) | u8(Piece.Black)
+                board[index] = u8(Piece.Pawn) | u8(Team.White)
+                board[mirror_index] = u8(Piece.Pawn) | u8(Team.Black)
             } else {
                 mirror_1 := 42 + (i + offset) - ((i + offset) / 7) * 14
                 mirror_2 := 42 + (i + offset * 2) - ((i + offset * 2) / 7) * 14
@@ -197,20 +215,12 @@ generate_starting_pos :: proc() -> Board {
             index := rand.int_max(2) == 0 ? pawn_1 : pawn_2
             mirror_index := 42 + index - (index / 7) * 14
 
-            board[index] = u8(Piece.Pawn) | u8(Piece.White)
-            board[mirror_index] = u8(Piece.Pawn) | u8(Piece.Black)
+            board[index] = u8(Piece.Pawn) | u8(Team.White)
+            board[mirror_index] = u8(Piece.Pawn) | u8(Team.Black)
         }
     }
 
     return board
-}
-
-possible_moves :: proc(board: ^Board, pos: u32, allocator := context.temp_allocator) -> [dynamic]u32 {
-    moves := make([dynamic]u32, allocator)
-
-    piece: Piece = Piece(board[pos] & 7)
-
-    return moves
 }
 
 main :: proc() {
@@ -253,7 +263,8 @@ main :: proc() {
     queen    := rl.LoadTexture("resources/queen.png")
     rook     := rl.LoadTexture("resources/rook.png")
 
-    dot      := rl.LoadTexture("resources/circle4.png")
+    dot      := rl.LoadTexture("resources/dot.png")
+    circle   := rl.LoadTexture("resources/circle.png")
 
     defer rl.UnloadTexture(bishop)
     defer rl.UnloadTexture(elephant)
@@ -268,12 +279,12 @@ main :: proc() {
 
     marked_square: Maybe(i32)
 
-    board[7] = u8(Piece.Bishop) | u8(Piece.White)
-    board[8] = u8(Piece.Queen) | u8(Piece.Black)
-    board[9] = u8(Piece.Knight) | u8(Piece.White)
-    board[17] = u8(Piece.King) | u8(Piece.White)
-    board[18] = u8(Piece.Pawn) | u8(Piece.Black)
-    board[19] = u8(Piece.Elephant) | u8(Piece.White)
+    board[7] = u8(Piece.Bishop) | u8(Team.White)
+    board[8] = u8(Piece.Queen) | u8(Team.Black)
+    board[9] = u8(Piece.Knight) | u8(Team.White)
+    board[17] = u8(Piece.King) | u8(Team.White)
+    board[18] = u8(Piece.Pawn) | u8(Team.Black)
+    board[19] = u8(Piece.Elephant) | u8(Team.White)
 
     for !rl.WindowShouldClose() {
 
@@ -350,8 +361,8 @@ main :: proc() {
 
                 // Draw Piece
                 if board[index] != 0 {
-                    piece := (Piece)(board[index] & 7)
-                    team := (Piece)(board[index] & 24)
+                    piece := (Piece)(board[index] & PIECE_MASK)
+                    team := (Team)(board[index] & TEAM_MASK)
 
                     tex: rl.Texture2D
                     color: rl.Color = DARK_PIECE
@@ -383,14 +394,49 @@ main :: proc() {
                         dest_rect.x = mouse_pos.x - SQUARE_SIZE * 0.5
                         dest_rect.y = mouse_pos.y - SQUARE_SIZE * 0.5
 
+                        // Get moves
+                        moves := possible_moves(&board, index)
 
-                        // DOT
-                        dot_source := rl.Rectangle { 0, 0, f32(dot.width), f32(dot.height) }
-                        dot_dest := rl.Rectangle {
-                            (f32(render_x) + 0.25) * SQUARE_SIZE,
-                            (f32(render_y) - 0.75) * SQUARE_SIZE,
-                            SQUARE_SIZE * 0.5,
-                            SQUARE_SIZE * 0.5,
+                        dot_rect := rl.Rectangle { 0, 0, f32(dot.width), f32(dot.height) }
+                        circle_rect := rl.Rectangle { 0, 0, f32(circle.width), f32(circle.height) }
+
+                        for move in moves {
+                            draw_x := (move % 7) + 1
+                            draw_y := 7 - (move / 7)
+
+                            move_tex: rl.Texture2D
+                            source: rl.Rectangle
+                            dest: rl.Rectangle
+
+                            if board[move] != 0 {
+                                // capture circle
+                                move_tex = circle
+                                source = circle_rect
+                                dest = {
+                                    (f32(draw_x)) * SQUARE_SIZE,
+                                    (f32(draw_y)) * SQUARE_SIZE,
+                                    SQUARE_SIZE,
+                                    SQUARE_SIZE,
+                                }
+                            } else {
+                                // move dot
+                                move_tex = dot
+                                source = dot_rect
+                                dest = {
+                                    (f32(draw_x) + 0.25) * SQUARE_SIZE,
+                                    (f32(draw_y) + 0.25) * SQUARE_SIZE,
+                                    SQUARE_SIZE * 0.5,
+                                    SQUARE_SIZE * 0.5,
+                                }
+                            }
+
+                            rl.DrawTexturePro(
+                                move_tex,
+                                source,
+                                dest,
+                                { 0, 0 },
+                                0,
+                                {200, 200, 200, 200})
                         }
                         //dot_dest := rl.Rectangle {
                             //(f32(render_x)) * SQUARE_SIZE,
@@ -398,13 +444,6 @@ main :: proc() {
                             //SQUARE_SIZE,
                             //SQUARE_SIZE,
                         //}
-                        rl.DrawTexturePro(
-                            dot,
-                            dot_source,
-                            dot_dest,
-                            { 0, 0 },
-                            0,
-                            {200, 200, 200, 200})
                     }
 
                     rl.DrawTexturePro(
@@ -419,5 +458,7 @@ main :: proc() {
         }
 
         rl.EndDrawing()
+
+        free_all(context.temp_allocator)
     }
 }
