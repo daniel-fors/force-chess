@@ -14,15 +14,36 @@ import "core:fmt"
 
 v2i32 :: [2]i32
 
-KING_MOVES :: []v2i32 { { 1, 0 }, { 0, -1 }, { -1, 0 }, { 0, 1 } }
+K :: 1 << u32(Piece.King)
+P :: 1 << u32(Piece.Pawn)
+N :: 1 << u32(Piece.Knight)
+B :: 1 << u32(Piece.Bishop)
+R :: 1 << u32(Piece.Rook)
+Q :: 1 << u32(Piece.Queen)
+E :: 1 << u32(Piece.Elephant)
+
+// TODO: Convert moves to use this
+STRAIGHT_CAPTURE :: []u32 { K|R|Q, R|Q, R|Q, R|Q, R|Q, R|Q }
+DIAGONAL_CAPTURE :: []u32 { K|B|Q, E|B|Q, B|Q, B|Q, B|Q, B|Q }
+DIAGONAL_DIRS :: []v2i32 { { 1, 1 }, { 1, -1 }, { -1, -1 }, { -1, 1 } }
+STRAIGHT_DIRS :: []v2i32 { { 1, 0 }, { 0, -1 }, { -1, 0 }, { 0, 1 } }
+
+PAWN_CAPTURES :: []v2i32 { { 1, 1 }, { -1, 1 } }
+
+KING_MOVES :: []v2i32 { { 1, 0 }, { 1, 1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { -1, -1 }, { 0, 1 }, { -1, 1 } }
 KNIGHT_MOVES :: []v2i32 { { 2, 1 }, { 2, -1 }, { 1, -2 }, { -1, -2 }, { -2, -1 }, { -2, 1 }, { -1, 2 }, { 1, 2 } }
 BISHOP_MOVES :: []v2i32 { { 1, 1 }, { 1, -1 }, { -1, -1 }, { -1, 1 } }
 ROOK_MOVES :: []v2i32 { { 1, 0 }, { 0, -1 }, { -1, 0 }, { 0, 1 } }
 QUEEN_MOVES :: []v2i32 { { 1, 0 }, { 1, 1 }, { 0, -1 }, { 1, -1 }, { -1, 0 }, { -1, -1 }, { 0, 1 }, { -1, 1 } }
 ELEPHANT_MOVES :: []v2i32 { { 2, 2 }, { 2, -2 }, { -2, -2 }, { -2, 2 } }
 
+
 index :: proc(coord: v2i32) -> i32 {
     return coord.x + coord.y * 7
+}
+
+transform_move :: proc(pos: i32, delta: v2i32) -> (i32, bool) {
+    return pos + index(delta), in_bounds(pos, delta.x, delta.y)
 }
 
 possible_moves :: proc(board: ^Board, pos: i32, allocator := context.temp_allocator) -> [dynamic]i32 {
@@ -33,14 +54,8 @@ possible_moves :: proc(board: ^Board, pos: i32, allocator := context.temp_alloca
     piece: Piece = Piece(board[pos] & PIECE_MASK)
     team: Team = Team(board[pos] & TEAM_MASK)
 
-    #partial switch team {
-        //case .White: color = LIGHT_PIECE
-        //case .Black: color = DARK_PIECE
-    }
-
-    // TODO: Check for check
-
-    #partial switch piece {
+    switch piece {
+        case .None:     assert(false)
         case .King:     moves = king_moves(board, pos, team, allocator)
         case .Pawn:     moves = pawn_moves(board, pos, team, allocator)
         case .Elephant: moves = elephant_moves(board, pos, team, allocator)
@@ -49,7 +64,52 @@ possible_moves :: proc(board: ^Board, pos: i32, allocator := context.temp_alloca
         case .Rook:     moves = rook_moves(board, pos, team, allocator)
         case .Queen:    moves = queen_moves(board, pos, team, allocator)
     }
+
+    move_loop: for i := len(moves) - 1; i >= 0; i -= 1 {
+        board_state := board^
+        board_state[pos] = 0
+        board_state[moves[i]] = u8(piece) | u8(team)
+
+        king := find_king(&board_state, team)
+        
+        for pawn in PAWN_CAPTURES {
+            p := v2i32 { pawn.x, pawn.y }
+            if eval, ok := transform_move(king, p); ok {
+                slot := board_state[eval]
+                if Team(slot & TEAM_MASK) != team && Piece(slot & PIECE_MASK) == .Pawn {
+                    unordered_remove(&moves, i)
+                    continue move_loop
+                }
+            }
+        }
+
+        for dir in DIAGONAL_DIRS {
+            for op, j in DIAGONAL_CAPTURE {
+                d := i32(j) + 1
+                if pos, ok := transform_move(king, { dir.x * d, dir.y * d }); ok {
+                    slot := board_state[pos]
+                    if Team(slot & TEAM_MASK) != team && ((1 << (slot & PIECE_MASK)) & op) != 0  {
+                        unordered_remove(&moves, j)
+                        continue move_loop
+                    }
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
     return moves
+}
+
+find_king :: proc(board: ^Board, team: Team) -> i32 {
+    for i in 0..<len(board) {
+        piece := board[i]
+        if Piece(piece & PIECE_MASK) == .King && Team(piece & TEAM_MASK) == team do return i32(i)
+    }
+
+    assert(false)
+    return -1
 }
 
 king_moves :: proc(board: ^Board, pos: i32, team: Team, allocator := context.temp_allocator) -> [dynamic]i32 {
